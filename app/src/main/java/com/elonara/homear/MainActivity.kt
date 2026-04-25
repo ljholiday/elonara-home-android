@@ -44,10 +44,10 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var arSurface: GLSurfaceView
     private lateinit var roomWorldMarkers: FrameLayout
-    private lateinit var carryAppDock: View
-    private lateinit var carryActiveWindow: View
-    private lateinit var activeWindowTitle: TextView
-    private lateinit var activeWindowBody: TextView
+    private lateinit var carryAppDockRoot: View
+    private lateinit var carryActiveWindowRoot: View
+    private lateinit var carryAppDock: CarryAppDock
+    private lateinit var carryActiveWindow: CarryActiveWindow
     private lateinit var renderer: SpatialRenderer
 
     private var arSession: Session? = null
@@ -56,12 +56,12 @@ class MainActivity : AppCompatActivity() {
     private val smoothedRoomObjectPositions = mutableMapOf<String, ScreenPoint>()
 
     private val roomWorldMarkerObjects = PlaceholderWorldObjects.objects
-    private val carryAppDockObjects = listOf(
-        CarryAppSpec(R.id.browser_object, "Browser", "Browser placeholder content"),
-        CarryAppSpec(R.id.social_object, "Social", "Social placeholder content"),
-        CarryAppSpec(R.id.calendar_object, "Calendar", "Calendar placeholder content"),
-        CarryAppSpec(R.id.messages_object, "Messages", "Messages placeholder content"),
-        CarryAppSpec(R.id.settings_object, "Settings", "Settings placeholder content")
+    private val carryDockButtons = listOf(
+        CarryDockButtonSpec(R.id.browser_object, CarryAppId.BROWSER),
+        CarryDockButtonSpec(R.id.social_object, CarryAppId.SOCIAL),
+        CarryDockButtonSpec(R.id.calendar_object, CarryAppId.CALENDAR),
+        CarryDockButtonSpec(R.id.messages_object, CarryAppId.MESSAGES),
+        CarryDockButtonSpec(R.id.settings_object, CarryAppId.SETTINGS)
     )
     private val roomObjectViews = mutableMapOf<String, View>()
 
@@ -80,10 +80,20 @@ class MainActivity : AppCompatActivity() {
 
         arSurface = findViewById(R.id.ar_surface)
         roomWorldMarkers = findViewById(R.id.room_world_markers)
-        carryAppDock = findViewById(R.id.carry_app_dock)
-        carryActiveWindow = findViewById(R.id.carry_active_window)
-        activeWindowTitle = findViewById(R.id.active_window_title)
-        activeWindowBody = findViewById(R.id.active_window_body)
+        carryAppDockRoot = findViewById(R.id.carry_app_dock)
+        carryActiveWindowRoot = findViewById(R.id.carry_active_window)
+        carryAppDock = CarryAppDock(
+            root = carryAppDockRoot,
+            buttons = carryDockButtons,
+            onSelected = { appId -> showActiveCarryWindow(appId) }
+        )
+        carryActiveWindow = CarryActiveWindow(
+            root = carryActiveWindowRoot,
+            titleView = findViewById(R.id.active_window_title),
+            contentContainer = findViewById(R.id.active_window_body),
+            closeControl = findViewById(R.id.active_window_close),
+            panels = CarryPanelRegistry()
+        )
         renderer = SpatialRenderer(
             worldObjects = roomWorldMarkerObjects,
             deviceLocation = PlaceholderWorldObjects.deviceLocation,
@@ -98,8 +108,8 @@ class MainActivity : AppCompatActivity() {
 
         configureCarryRegions()
         inflateRoomWorldMarkers()
-        carryAppDock.bringToFront()
-        carryActiveWindow.bringToFront()
+        carryAppDockRoot.bringToFront()
+        carryActiveWindowRoot.bringToFront()
     }
 
     override fun onResume() {
@@ -200,29 +210,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun configureCarryRegions() {
-        carryAppDockObjects.forEach { app ->
-            findViewById<TextView>(app.viewId).setOnClickListener {
-                showActiveCarryWindow(app)
-            }
-        }
-        findViewById<TextView>(R.id.active_window_close).setOnClickListener {
-            closeActiveCarryWindow()
-        }
+        carryAppDock.bind()
     }
 
-    private fun showActiveCarryWindow(app: CarryAppSpec) {
-        Log.d(tag, "showActiveCarryWindow title=${app.title}")
-        activeWindowTitle.text = app.title
-        activeWindowBody.text = app.placeholder
-        carryActiveWindow.visibility = View.VISIBLE
-        carryActiveWindow.bringToFront()
-        carryAppDock.bringToFront()
-    }
-
-    private fun closeActiveCarryWindow() {
-        Log.d(tag, "closeActiveCarryWindow")
-        carryActiveWindow.visibility = View.GONE
-        carryAppDock.bringToFront()
+    private fun showActiveCarryWindow(appId: CarryAppId) {
+        Log.d(tag, "showActiveCarryWindow appId=$appId")
+        carryActiveWindow.show(appId)
+        carryAppDockRoot.bringToFront()
     }
 
     private fun updateRoomObjectPositions(projections: List<ObjectProjection>) {
@@ -268,12 +262,6 @@ class MainActivity : AppCompatActivity() {
         private const val ROOM_OBJECT_SMOOTHING = 0.42f
     }
 }
-
-data class CarryAppSpec(
-    val viewId: Int,
-    val title: String,
-    val placeholder: String
-)
 
 data class ObjectProjection(
     val id: String,
