@@ -19,11 +19,16 @@ import com.google.ar.core.Anchor
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Camera
 import com.google.ar.core.Config
+import com.google.ar.core.Coordinates2d
+import com.google.ar.core.Frame
 import com.google.ar.core.Pose
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.UnavailableException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -206,6 +211,7 @@ private class SpatialRenderer(
     private var viewportWidth = 1
     private var viewportHeight = 1
     private var anchors: List<Pair<RoomObjectSpec, Anchor>> = emptyList()
+    private lateinit var cameraBackground: CameraBackgroundRenderer
 
     fun setSession(session: Session) {
         synchronized(lock) {
@@ -226,7 +232,8 @@ private class SpatialRenderer(
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.03f, 0.06f, 0.07f, 1.0f)
-        cameraTextureId = createExternalTexture()
+        cameraBackground = CameraBackgroundRenderer()
+        cameraTextureId = cameraBackground.createOnGlThread()
         synchronized(lock) {
             session?.setCameraTextureName(cameraTextureId)
         }
@@ -247,6 +254,7 @@ private class SpatialRenderer(
         try {
             currentSession.setDisplayGeometry(rotationProvider(), viewportWidth, viewportHeight)
             val frame = currentSession.update()
+            cameraBackground.draw(frame)
             val camera = frame.camera
             if (camera.trackingState != TrackingState.TRACKING) {
                 return
@@ -301,6 +309,89 @@ private class SpatialRenderer(
         }
     }
 
+}
+
+private class CameraBackgroundRenderer {
+    private val quadCoords = floatBufferOf(
+        -1.0f, -1.0f,
+        1.0f, -1.0f,
+        -1.0f, 1.0f,
+        1.0f, 1.0f
+    )
+    private val quadTexCoords = floatBufferOf(
+        0.0f, 0.0f,
+        1.0f, 0.0f,
+        0.0f, 1.0f,
+        1.0f, 1.0f
+    )
+    private val transformedTexCoords = floatBufferOf(
+        0.0f, 0.0f,
+        1.0f, 0.0f,
+        0.0f, 1.0f,
+        1.0f, 1.0f
+    )
+
+    private var textureId = 0
+    private var program = 0
+    private var positionAttribute = 0
+    private var texCoordAttribute = 0
+    private var textureUniform = 0
+
+    fun createOnGlThread(): Int {
+        textureId = createExternalTexture()
+        program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
+        positionAttribute = GLES20.glGetAttribLocation(program, "a_Position")
+        texCoordAttribute = GLES20.glGetAttribLocation(program, "a_TexCoord")
+        textureUniform = GLES20.glGetUniformLocation(program, "u_Texture")
+        return textureId
+    }
+
+    fun draw(frame: Frame) {
+        if (frame.timestamp == 0L) {
+            return
+        }
+
+        if (frame.hasDisplayGeometryChanged()) {
+            quadCoords.position(0)
+            transformedTexCoords.position(0)
+            frame.transformCoordinates2d(
+                Coordinates2d.OPENGL_NORMALIZED_DEVICE_COORDINATES,
+                quadCoords,
+                Coordinates2d.TEXTURE_NORMALIZED,
+                transformedTexCoords
+            )
+        }
+
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+        GLES20.glDepthMask(false)
+        GLES20.glUseProgram(program)
+
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
+        GLES20.glUniform1i(textureUniform, 0)
+
+        quadCoords.position(0)
+        GLES20.glVertexAttribPointer(positionAttribute, 2, GLES20.GL_FLOAT, false, 0, quadCoords)
+        GLES20.glEnableVertexAttribArray(positionAttribute)
+
+        transformedTexCoords.position(0)
+        GLES20.glVertexAttribPointer(
+            texCoordAttribute,
+            2,
+            GLES20.GL_FLOAT,
+            false,
+            0,
+            transformedTexCoords
+        )
+        GLES20.glEnableVertexAttribArray(texCoordAttribute)
+
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+
+        GLES20.glDisableVertexAttribArray(positionAttribute)
+        GLES20.glDisableVertexAttribArray(texCoordAttribute)
+        GLES20.glDepthMask(true)
+    }
+
     private fun createExternalTexture(): Int {
         val textureIds = IntArray(1)
         GLES20.glGenTextures(1, textureIds, 0)
@@ -327,4 +418,53 @@ private class SpatialRenderer(
         )
         return textureIds[0]
     }
+
+    private fun createProgram(vertexShaderCode: String, fragmentShaderCode: String): Int {
+        val vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexShaderCode)
+        val fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentShaderCode)
+        return GLES20.glCreateProgram().also { program ->
+            GLES20.glAttachShader(program, vertexShader)
+            GLES20.glAttachShader(program, fragmentShader)
+            GLES20.glLinkProgram(program)
+        }
+    }
+
+    private fun loadShader(type: Int, shaderCode: String): Int =
+        GLES20.glCreateShader(type).also { shader ->
+            GLES20.glShaderSource(shader, shaderCode)
+            GLES20.glCompileShader(shader)
+        }
+
+    private companion object {
+        private const val VERTEX_SHADER = """
+            attribute vec4 a_Position;
+            attribute vec2 a_TexCoord;
+            varying vec2 v_TexCoord;
+
+            void main() {
+                gl_Position = a_Position;
+                v_TexCoord = a_TexCoord;
+            }
+        """
+
+        private const val FRAGMENT_SHADER = """
+            #extension GL_OES_EGL_image_external : require
+            precision mediump float;
+            varying vec2 v_TexCoord;
+            uniform samplerExternalOES u_Texture;
+
+            void main() {
+                gl_FragColor = texture2D(u_Texture, v_TexCoord);
+            }
+        """
+    }
 }
+
+private fun floatBufferOf(vararg values: Float): FloatBuffer =
+    ByteBuffer.allocateDirect(values.size * Float.SIZE_BYTES)
+        .order(ByteOrder.nativeOrder())
+        .asFloatBuffer()
+        .apply {
+            put(values)
+            position(0)
+        }
