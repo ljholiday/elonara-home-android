@@ -376,16 +376,23 @@ private class SpatialRenderer(
             val relativeBearing = BearingMath.normalizeSignedDegrees(
                 bearing - deviceLocation.headingDegrees
             )
+            val distanceMeters = BearingMath.distanceMeters(
+                fromLatitude = deviceLocation.latitude,
+                fromLongitude = deviceLocation.longitude,
+                toLatitude = worldObject.latitude,
+                toLongitude = worldObject.longitude
+            )
             val bearingRadians = Math.toRadians(relativeBearing.toDouble()).toFloat()
             val worldPoint = horizontalWorldPoint(
                 originPose = originPose,
                 relativeBearingRadians = bearingRadians,
+                distanceMeters = distanceMeters,
                 verticalOffset = (0.5f - verticalPositionFor(index)) *
                     ROOM_MARKER_VERTICAL_SCALE_METERS
             )
             logMarkerCreated(
                 "created world marker id=${worldObject.id} label=${worldObject.label} " +
-                    "bearing=$bearing relativeBearing=$relativeBearing " +
+                    "bearing=$bearing relativeBearing=$relativeBearing distanceMeters=$distanceMeters " +
                     "world=(${worldPoint[0]}, ${worldPoint[1]}, ${worldPoint[2]})"
             )
             WorldObjectAnchor(
@@ -399,6 +406,7 @@ private class SpatialRenderer(
     private fun horizontalWorldPoint(
         originPose: Pose,
         relativeBearingRadians: Float,
+        distanceMeters: Float,
         verticalOffset: Float
     ): FloatArray {
         val cameraZAxis = FloatArray(3)
@@ -419,9 +427,9 @@ private class SpatialRenderer(
             unitRightZ * sin(relativeBearingRadians)
 
         return floatArrayOf(
-            originPose.tx() + horizontalX * ROOM_MARKER_RADIUS_METERS,
+            originPose.tx() + horizontalX * distanceMeters,
             originPose.ty() + verticalOffset,
-            originPose.tz() + horizontalZ * ROOM_MARKER_RADIUS_METERS
+            originPose.tz() + horizontalZ * distanceMeters
         )
     }
 
@@ -462,7 +470,6 @@ private class SpatialRenderer(
 
     private companion object {
         private const val REQUIRED_TRACKING_FRAMES_BEFORE_ANCHORING = 24
-        private const val ROOM_MARKER_RADIUS_METERS = 4.0f
         private const val ROOM_MARKER_VERTICAL_SCALE_METERS = 1.3f
     }
 }

@@ -4,6 +4,7 @@ import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 object BearingMath {
     fun bearingDegrees(
@@ -23,6 +24,23 @@ object BearingMath {
         return normalizeDegrees((atan2(y, x) * 180.0 / PI).toFloat())
     }
 
+    fun distanceMeters(
+        fromLatitude: Double,
+        fromLongitude: Double,
+        toLatitude: Double,
+        toLongitude: Double
+    ): Float {
+        val meanLatitude = ((fromLatitude + toLatitude) / 2.0).toRadians()
+        val deltaLatitudeMeters = (toLatitude - fromLatitude) * METERS_PER_DEGREE_LATITUDE
+        val deltaLongitudeMeters = (toLongitude - fromLongitude) *
+            METERS_PER_DEGREE_LATITUDE * cos(meanLatitude)
+
+        return sqrt(
+            deltaLatitudeMeters * deltaLatitudeMeters +
+                deltaLongitudeMeters * deltaLongitudeMeters
+        ).toFloat()
+    }
+
     fun normalizeSignedDegrees(angle: Float): Float {
         val normalized = normalizeDegrees(angle)
         return if (normalized > 180.0f) normalized - 360.0f else normalized
@@ -34,4 +52,6 @@ object BearingMath {
     }
 
     private fun Double.toRadians(): Double = this * PI / 180.0
+
+    private const val METERS_PER_DEGREE_LATITUDE = 111_320.0
 }
