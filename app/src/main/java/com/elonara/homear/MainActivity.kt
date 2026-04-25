@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private var arSession: Session? = null
     private var installRequested = false
     private var isSessionResumed = false
+    private val smoothedRoomObjectPositions = mutableMapOf<String, ScreenPoint>()
 
     private val roomLayerObjects = listOf(
         RoomObjectSpec("Calendar", "Room layer placeholder", -0.9f, 0.15f, -2.0f),
@@ -183,21 +184,23 @@ class MainActivity : AppCompatActivity() {
         projections.forEach { projection ->
             val view = roomObjectViews[projection.title] ?: return@forEach
             if (!projection.visible) {
+                smoothedRoomObjectPositions.remove(projection.title)
                 view.visibility = View.INVISIBLE
                 return@forEach
             }
 
             val width = view.width.takeIf { it > 0 } ?: view.measuredWidth
             val height = view.height.takeIf { it > 0 } ?: view.measuredHeight
-            val params = (view.layoutParams as? FrameLayout.LayoutParams)
-                ?: FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT
-                )
+            val targetX = projection.x - width / 2f
+            val targetY = projection.y - height / 2f
+            val smoothedPoint = smoothedRoomObjectPositions.getOrPut(projection.title) {
+                ScreenPoint(targetX, targetY)
+            }
 
-            params.leftMargin = (projection.x - width / 2f).toInt()
-            params.topMargin = (projection.y - height / 2f).toInt()
-            view.layoutParams = params
+            smoothedPoint.x += (targetX - smoothedPoint.x) * ROOM_OBJECT_SMOOTHING
+            smoothedPoint.y += (targetY - smoothedPoint.y) * ROOM_OBJECT_SMOOTHING
+            view.x = smoothedPoint.x
+            view.y = smoothedPoint.y
             view.visibility = View.VISIBLE
         }
     }
@@ -215,6 +218,10 @@ class MainActivity : AppCompatActivity() {
             PackageManager.PERMISSION_GRANTED
 
     private fun displayRotation(): Int = display?.rotation ?: Surface.ROTATION_0
+
+    private companion object {
+        private const val ROOM_OBJECT_SMOOTHING = 0.42f
+    }
 }
 
 data class RoomObjectSpec(
@@ -232,6 +239,11 @@ data class ObjectProjection(
     val visible: Boolean
 )
 
+data class ScreenPoint(
+    var x: Float,
+    var y: Float
+)
+
 private class SpatialRenderer(
     private val roomLayerObjects: List<RoomObjectSpec>,
     private val rotationProvider: () -> Int,
@@ -243,6 +255,7 @@ private class SpatialRenderer(
     private var viewportWidth = 1
     private var viewportHeight = 1
     private var anchors: List<Pair<RoomObjectSpec, Anchor>> = emptyList()
+    private var trackingFrameCount = 0
     private lateinit var cameraBackground: CameraBackgroundRenderer
 
     fun setSession(session: Session?) {
@@ -289,10 +302,16 @@ private class SpatialRenderer(
             cameraBackground.draw(frame)
             val camera = frame.camera
             if (camera.trackingState != TrackingState.TRACKING) {
+                trackingFrameCount = 0
                 return
             }
 
             if (anchors.isEmpty()) {
+                trackingFrameCount += 1
+                if (trackingFrameCount < REQUIRED_TRACKING_FRAMES_BEFORE_ANCHORING) {
+                    return
+                }
+
                 anchors = roomLayerObjects.map { roomObject ->
                     roomObject to currentSession.createAnchor(
                         camera.pose.compose(Pose.makeTranslation(roomObject.x, roomObject.y, roomObject.z))
@@ -341,6 +360,9 @@ private class SpatialRenderer(
         }
     }
 
+    private companion object {
+        private const val REQUIRED_TRACKING_FRAMES_BEFORE_ANCHORING = 24
+    }
 }
 
 private class CameraBackgroundRenderer {
