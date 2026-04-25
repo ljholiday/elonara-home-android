@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="220dp"
+    android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:background="#D9192326"
+    android:background="#CC121718"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:paddingStart="12dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="12dp"
+    android:paddingBottom="8dp">
 
     <TextView
         android:id="@+id/roomObjectLabel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Room Layer"
+        android:text="World Marker"
         android:textAllCaps="true"
         android:textColor="#A9CBC4"
         android:textSize="11sp" />
@@ -19,18 +22,18 @@
         android:id="@+id/roomObjectTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Calendar"
+        android:layout_marginTop="4dp"
+        android:text="Restaurant"
         android:textColor="#FFFFFF"
-        android:textSize="26sp"
+        android:textSize="16sp"
         android:textStyle="bold" />
 
     <TextView
         android:id="@+id/roomObjectSubtitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:text="Room layer placeholder"
+        android:layout_marginTop="2dp"
+        android:text="Nearby place marker"
         android:textColor="#D0DDD5"
-        android:textSize="14sp" />
+        android:textSize="12sp" />
 </LinearLayout>

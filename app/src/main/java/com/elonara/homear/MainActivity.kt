@@ -9,7 +9,6 @@ import android.opengl.Matrix
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
-import android.view.MotionEvent
 import android.view.Surface
 import android.view.View
 import android.widget.FrameLayout
@@ -42,23 +41,30 @@ class MainActivity : AppCompatActivity() {
     private val tag = "ElonaraHomeAr"
 
     private lateinit var arSurface: GLSurfaceView
-    private lateinit var roomLayerContainer: FrameLayout
-    private lateinit var carryLayerPanel: View
+    private lateinit var roomWorldMarkers: FrameLayout
+    private lateinit var carryAppDock: View
+    private lateinit var carryActiveWindow: View
+    private lateinit var activeWindowTitle: TextView
+    private lateinit var activeWindowBody: TextView
     private lateinit var renderer: SpatialRenderer
-    private lateinit var detailPanel: View
-    private lateinit var detailPanelLayer: TextView
-    private lateinit var detailPanelTitle: TextView
-    private lateinit var detailPanelBody: TextView
 
     private var arSession: Session? = null
     private var installRequested = false
     private var isSessionResumed = false
     private val smoothedRoomObjectPositions = mutableMapOf<String, ScreenPoint>()
 
-    private val roomLayerObjects = listOf(
-        RoomObjectSpec("Calendar", "Room layer placeholder", -0.9f, 0.15f, -2.0f),
-        RoomObjectSpec("Weather", "Room layer placeholder", 0.15f, 0.35f, -2.4f),
-        RoomObjectSpec("Messages", "Room layer placeholder", 1.0f, -0.1f, -2.8f)
+    private val roomWorldMarkerObjects = listOf(
+        RegionObjectSpec("Restaurant", "Local place marker", -1.1f, 0.08f, -2.4f),
+        RegionObjectSpec("Gas", "Fuel nearby marker", 0.25f, 0.2f, -2.8f),
+        RegionObjectSpec("Park", "Outdoor place marker", 1.0f, -0.05f, -3.1f),
+        RegionObjectSpec("Transit", "Route marker", -0.3f, -0.28f, -3.4f)
+    )
+    private val carryAppDockObjects = listOf(
+        CarryAppSpec(R.id.browser_object, "Browser", "Browser placeholder content"),
+        CarryAppSpec(R.id.social_object, "Social", "Social placeholder content"),
+        CarryAppSpec(R.id.calendar_object, "Calendar", "Calendar placeholder content"),
+        CarryAppSpec(R.id.messages_object, "Messages", "Messages placeholder content"),
+        CarryAppSpec(R.id.settings_object, "Settings", "Settings placeholder content")
     )
     private val roomObjectViews = mutableMapOf<String, View>()
 
@@ -76,14 +82,13 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         arSurface = findViewById(R.id.ar_surface)
-        roomLayerContainer = findViewById(R.id.room_layer_container)
-        carryLayerPanel = findViewById(R.id.carry_layer_panel)
-        detailPanel = findViewById(R.id.detail_panel)
-        detailPanelLayer = findViewById(R.id.detail_panel_layer)
-        detailPanelTitle = findViewById(R.id.detail_panel_title)
-        detailPanelBody = findViewById(R.id.detail_panel_body)
+        roomWorldMarkers = findViewById(R.id.room_world_markers)
+        carryAppDock = findViewById(R.id.carry_app_dock)
+        carryActiveWindow = findViewById(R.id.carry_active_window)
+        activeWindowTitle = findViewById(R.id.active_window_title)
+        activeWindowBody = findViewById(R.id.active_window_body)
         renderer = SpatialRenderer(
-            roomLayerObjects = roomLayerObjects,
+            roomLayerObjects = roomWorldMarkerObjects,
             rotationProvider = { displayRotation() },
             onFrame = { projections -> runOnUiThread { updateRoomObjectPositions(projections) } }
         )
@@ -92,11 +97,10 @@ class MainActivity : AppCompatActivity() {
         arSurface.setRenderer(renderer)
         arSurface.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
 
-        configureCarryLayerInteraction()
-        inflateRoomLayerObjects()
-        configureRoomLayerInteraction()
-        carryLayerPanel.bringToFront()
-        detailPanel.bringToFront()
+        configureCarryRegions()
+        inflateRoomWorldMarkers()
+        carryAppDock.bringToFront()
+        carryActiveWindow.bringToFront()
     }
 
     override fun onResume() {
@@ -182,86 +186,44 @@ class MainActivity : AppCompatActivity() {
         return null
     }
 
-    private fun inflateRoomLayerObjects() {
+    private fun inflateRoomWorldMarkers() {
         val inflater = LayoutInflater.from(this)
 
-        roomLayerObjects.forEach { roomObject ->
-            val cardView = inflater.inflate(R.layout.view_room_object, roomLayerContainer, false)
+        roomWorldMarkerObjects.forEach { roomObject ->
+            val cardView = inflater.inflate(R.layout.view_room_object, roomWorldMarkers, false)
+            cardView.findViewById<TextView>(R.id.roomObjectLabel).text = "World Marker"
             cardView.findViewById<TextView>(R.id.roomObjectTitle).text = roomObject.title
             cardView.findViewById<TextView>(R.id.roomObjectSubtitle).text = roomObject.subtitle
-            cardView.setOnClickListener {
-                showDetailPanel(
-                    layer = "Room Layer",
-                    title = roomObject.title,
-                    body = "${roomObject.title} detail placeholder"
-                )
-            }
             cardView.visibility = View.INVISIBLE
-            roomLayerContainer.addView(cardView)
+            roomWorldMarkers.addView(cardView)
             roomObjectViews[roomObject.title] = cardView
         }
     }
 
-    private fun configureCarryLayerInteraction() {
-        carryLayerPanel.setOnTouchListener { _, event ->
-            event.action == MotionEvent.ACTION_UP &&
-                showRoomDetailIfPointHitsRoomObject(event.rawX, event.rawY)
-        }
-
-        findViewById<TextView>(R.id.browser_object).setOnClickListener {
-            showDetailPanel(
-                layer = "Carry Layer",
-                title = "Browser",
-                body = "Browser input placeholder"
-            )
-        }
-
-        findViewById<TextView>(R.id.social_object).setOnClickListener {
-            showDetailPanel(
-                layer = "Carry Layer",
-                title = "Social",
-                body = "Social detail placeholder"
-            )
-        }
-    }
-
-    private fun configureRoomLayerInteraction() {
-        roomLayerContainer.setOnTouchListener { _, event ->
-            if (event.action != MotionEvent.ACTION_UP) {
-                return@setOnTouchListener false
+    private fun configureCarryRegions() {
+        carryAppDockObjects.forEach { app ->
+            findViewById<TextView>(app.viewId).setOnClickListener {
+                showActiveCarryWindow(app)
             }
-
-            showRoomDetailIfPointHitsRoomObject(event.rawX, event.rawY)
+        }
+        findViewById<TextView>(R.id.active_window_close).setOnClickListener {
+            closeActiveCarryWindow()
         }
     }
 
-    private fun showRoomDetailIfPointHitsRoomObject(rawX: Float, rawY: Float): Boolean {
-        val location = IntArray(2)
-        val roomObject = roomLayerObjects.firstOrNull { spec ->
-            val view = roomObjectViews[spec.title] ?: return@firstOrNull false
-            view.getLocationOnScreen(location)
-            view.visibility == View.VISIBLE &&
-                rawX >= location[0] &&
-                rawX <= location[0] + view.width &&
-                rawY >= location[1] &&
-                rawY <= location[1] + view.height
-        } ?: return false
-
-        showDetailPanel(
-            layer = "Room Layer",
-            title = roomObject.title,
-            body = "${roomObject.title} detail placeholder"
-        )
-        return true
+    private fun showActiveCarryWindow(app: CarryAppSpec) {
+        Log.d(tag, "showActiveCarryWindow title=${app.title}")
+        activeWindowTitle.text = app.title
+        activeWindowBody.text = app.placeholder
+        carryActiveWindow.visibility = View.VISIBLE
+        carryActiveWindow.bringToFront()
+        carryAppDock.bringToFront()
     }
 
-    private fun showDetailPanel(layer: String, title: String, body: String) {
-        Log.d(tag, "showDetailPanel layer=$layer title=$title")
-        detailPanelLayer.text = layer
-        detailPanelTitle.text = title
-        detailPanelBody.text = body
-        detailPanel.visibility = View.VISIBLE
-        detailPanel.bringToFront()
+    private fun closeActiveCarryWindow() {
+        Log.d(tag, "closeActiveCarryWindow")
+        carryActiveWindow.visibility = View.GONE
+        carryAppDock.bringToFront()
     }
 
     private fun updateRoomObjectPositions(projections: List<ObjectProjection>) {
@@ -308,12 +270,18 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-data class RoomObjectSpec(
+data class RegionObjectSpec(
     val title: String,
     val subtitle: String,
     val x: Float,
     val y: Float,
     val z: Float
+)
+
+data class CarryAppSpec(
+    val viewId: Int,
+    val title: String,
+    val placeholder: String
 )
 
 data class ObjectProjection(
@@ -329,7 +297,7 @@ data class ScreenPoint(
 )
 
 private class SpatialRenderer(
-    private val roomLayerObjects: List<RoomObjectSpec>,
+    private val roomLayerObjects: List<RegionObjectSpec>,
     private val rotationProvider: () -> Int,
     private val onFrame: (List<ObjectProjection>) -> Unit
 ) : GLSurfaceView.Renderer {
@@ -338,7 +306,7 @@ private class SpatialRenderer(
     private var cameraTextureId = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
-    private var anchors: List<Pair<RoomObjectSpec, Anchor>> = emptyList()
+    private var anchors: List<Pair<RegionObjectSpec, Anchor>> = emptyList()
     private var trackingFrameCount = 0
     private lateinit var cameraBackground: CameraBackgroundRenderer
 
