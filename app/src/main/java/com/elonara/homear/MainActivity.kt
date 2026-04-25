@@ -7,6 +7,7 @@ import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.Surface
 import android.view.View
@@ -37,12 +38,15 @@ import javax.microedition.khronos.opengles.GL10
  * Room objects are ARCore anchors projected into Android views; carry objects stay fixed on top.
  */
 class MainActivity : AppCompatActivity() {
+    private val tag = "ElonaraHomeAr"
+
     private lateinit var arSurface: GLSurfaceView
     private lateinit var roomLayerContainer: FrameLayout
     private lateinit var renderer: SpatialRenderer
 
     private var arSession: Session? = null
     private var installRequested = false
+    private var isSessionResumed = false
 
     private val roomLayerObjects = listOf(
         RoomObjectSpec("Calendar", "Room layer placeholder", -0.9f, 0.15f, -2.0f),
@@ -53,13 +57,15 @@ class MainActivity : AppCompatActivity() {
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            Log.d(tag, "camera permission result granted=$granted")
             if (granted) {
-                ensureArSession()
+                resumeArSession()
             }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d(tag, "onCreate")
         setContentView(R.layout.activity_main)
 
         arSurface = findViewById(R.id.ar_surface)
@@ -79,42 +85,68 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        Log.d(tag, "onResume")
         if (hasCameraPermission()) {
-            ensureArSession()
+            resumeArSession()
         } else {
+            Log.d(tag, "requesting camera permission")
             requestCameraPermission.launch(Manifest.permission.CAMERA)
         }
         arSurface.onResume()
     }
 
     override fun onPause() {
+        Log.d(tag, "onPause")
         super.onPause()
         arSurface.onPause()
+        renderer.setSession(null)
         arSession?.pause()
+        isSessionResumed = false
     }
 
     override fun onDestroy() {
+        Log.d(tag, "onDestroy")
         super.onDestroy()
         renderer.clearSession()
         arSession?.close()
         arSession = null
+        isSessionResumed = false
     }
 
-    private fun ensureArSession() {
-        if (arSession != null) {
+    private fun resumeArSession() {
+        val session = ensureArSession() ?: return
+        if (isSessionResumed) {
+            Log.d(tag, "AR session already resumed")
             return
         }
 
         try {
+            Log.d(tag, "resuming AR session")
+            renderer.setSession(session)
+            session.resume()
+            isSessionResumed = true
+        } catch (_: CameraNotAvailableException) {
+            renderer.setSession(null)
+            isSessionResumed = false
+            showSpatialStatus("Camera is not available for AR tracking.")
+        }
+    }
+
+    private fun ensureArSession(): Session? {
+        arSession?.let { return it }
+
+        try {
             when (ArCoreApk.getInstance().requestInstall(this, !installRequested)) {
                 ArCoreApk.InstallStatus.INSTALL_REQUESTED -> {
+                    Log.d(tag, "ARCore install requested")
                     installRequested = true
-                    return
+                    return null
                 }
 
                 ArCoreApk.InstallStatus.INSTALLED -> Unit
             }
 
+            Log.d(tag, "creating AR session")
             val session = Session(this).apply {
                 configure(
                     Config(this).apply {
@@ -123,15 +155,15 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             arSession = session
-            renderer.setSession(session)
-            session.resume()
+            return session
         } catch (_: UnavailableException) {
+            Log.d(tag, "ARCore unavailable")
             showSpatialStatus("ARCore is not available on this device.")
-        } catch (_: CameraNotAvailableException) {
-            showSpatialStatus("Camera is not available for AR tracking.")
         } catch (_: SecurityException) {
+            Log.d(tag, "camera permission missing while creating AR session")
             requestCameraPermission.launch(Manifest.permission.CAMERA)
         }
+        return null
     }
 
     private fun inflateRoomLayerObjects() {
@@ -213,10 +245,10 @@ private class SpatialRenderer(
     private var anchors: List<Pair<RoomObjectSpec, Anchor>> = emptyList()
     private lateinit var cameraBackground: CameraBackgroundRenderer
 
-    fun setSession(session: Session) {
+    fun setSession(session: Session?) {
         synchronized(lock) {
             this.session = session
-            if (cameraTextureId != 0) {
+            if (session != null && cameraTextureId != 0) {
                 session.setCameraTextureName(cameraTextureId)
             }
         }
