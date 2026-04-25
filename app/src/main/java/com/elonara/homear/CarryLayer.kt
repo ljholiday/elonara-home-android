@@ -45,6 +45,7 @@ class CarryActiveWindow(
 ) {
     var activeAppId: CarryAppId? = null
         private set
+    private var activePanel: CarryAppPanel? = null
 
     init {
         closeControl.setOnClickListener {
@@ -53,10 +54,16 @@ class CarryActiveWindow(
     }
 
     fun show(appId: CarryAppId) {
+        if (activeAppId == appId && root.visibility == View.VISIBLE) {
+            root.bringToFront()
+            return
+        }
+
         val panel = panels.panelFor(appId)
-        activeAppId = appId
-        titleView.text = panel.title
         clearContent()
+        activeAppId = appId
+        activePanel = panel
+        titleView.text = panel.title
         contentContainer.addView(panel.createView(contentContainer.context))
         root.visibility = View.VISIBLE
         root.bringToFront()
@@ -68,10 +75,22 @@ class CarryActiveWindow(
         root.visibility = View.GONE
     }
 
-    private fun clearContent() {
-        for (index in 0 until contentContainer.childCount) {
-            (contentContainer.getChildAt(index) as? WebView)?.destroy()
+    fun handleBack(): Boolean {
+        if (root.visibility != View.VISIBLE) {
+            return false
         }
+
+        if (activePanel?.handleBack() == true) {
+            return true
+        }
+
+        close()
+        return true
+    }
+
+    private fun clearContent() {
+        activePanel?.onRemovedFromWindow()
+        activePanel = null
         contentContainer.removeAllViews()
     }
 }
@@ -94,6 +113,10 @@ interface CarryAppPanel {
     val title: String
 
     fun createView(context: Context): View
+
+    fun handleBack(): Boolean = false
+
+    fun onRemovedFromWindow() = Unit
 }
 
 class BrowserPanel : PlaceholderCarryPanel(
@@ -105,9 +128,30 @@ class BrowserPanel : PlaceholderCarryPanel(
 class SocialPanel : CarryAppPanel {
     override val appId = CarryAppId.SOCIAL
     override val title = "Social"
+    private var webView: WebView? = null
 
     override fun createView(context: Context): View =
-        WebView(context).apply {
+        existingOrNewWebView(context).also { view ->
+            (view.parent as? ViewGroup)?.removeView(view)
+        }
+
+    override fun handleBack(): Boolean {
+        val view = webView ?: return false
+        if (!view.canGoBack()) {
+            return false
+        }
+
+        view.goBack()
+        return true
+    }
+
+    override fun onRemovedFromWindow() {
+        webView?.destroy()
+        webView = null
+    }
+
+    private fun existingOrNewWebView(context: Context): WebView =
+        webView ?: WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 420.dp(context)
@@ -116,6 +160,7 @@ class SocialPanel : CarryAppPanel {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             loadUrl(SOCIAL_URL)
+            webView = this
         }
 
     private fun Int.dp(context: Context): Int =

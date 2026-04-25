@@ -11,6 +11,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.Surface
 import android.view.View
+import androidx.activity.OnBackPressedCallback
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -107,6 +108,7 @@ class MainActivity : AppCompatActivity() {
         arSurface.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
 
         configureCarryRegions()
+        configureBackNavigation()
         inflateRoomWorldMarkers()
         carryAppDockRoot.bringToFront()
         carryActiveWindowRoot.bringToFront()
@@ -211,6 +213,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun configureCarryRegions() {
         carryAppDock.bind()
+    }
+
+    private fun configureBackNavigation() {
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (!carryActiveWindow.handleBack()) {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                        isEnabled = true
+                    }
+                }
+            }
+        )
     }
 
     private fun showActiveCarryWindow(appId: CarryAppId) {
