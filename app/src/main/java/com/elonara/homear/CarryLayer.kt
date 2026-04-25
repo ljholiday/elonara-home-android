@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.TextView
 
@@ -54,7 +56,7 @@ class CarryActiveWindow(
         val panel = panels.panelFor(appId)
         activeAppId = appId
         titleView.text = panel.title
-        contentContainer.removeAllViews()
+        clearContent()
         contentContainer.addView(panel.createView(contentContainer.context))
         root.visibility = View.VISIBLE
         root.bringToFront()
@@ -62,8 +64,15 @@ class CarryActiveWindow(
 
     fun close() {
         activeAppId = null
-        contentContainer.removeAllViews()
+        clearContent()
         root.visibility = View.GONE
+    }
+
+    private fun clearContent() {
+        for (index in 0 until contentContainer.childCount) {
+            (contentContainer.getChildAt(index) as? WebView)?.destroy()
+        }
+        contentContainer.removeAllViews()
     }
 }
 
@@ -93,11 +102,29 @@ class BrowserPanel : PlaceholderCarryPanel(
     placeholderText = "Browser placeholder content"
 )
 
-class SocialPanel : PlaceholderCarryPanel(
-    appId = CarryAppId.SOCIAL,
-    title = "Social",
-    placeholderText = "Social placeholder content"
-)
+class SocialPanel : CarryAppPanel {
+    override val appId = CarryAppId.SOCIAL
+    override val title = "Social"
+
+    override fun createView(context: Context): View =
+        WebView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                420.dp(context)
+            )
+            webViewClient = WebViewClient()
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            loadUrl(SOCIAL_URL)
+        }
+
+    private fun Int.dp(context: Context): Int =
+        (this * context.resources.displayMetrics.density).toInt()
+
+    private companion object {
+        private const val SOCIAL_URL = "https://social.elonara.com"
+    }
+}
 
 class CalendarPanel : PlaceholderCarryPanel(
     appId = CarryAppId.CALENDAR,
