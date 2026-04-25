@@ -9,6 +9,7 @@ import android.opengl.Matrix
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.Surface
 import android.view.View
 import android.widget.FrameLayout
@@ -42,7 +43,12 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var arSurface: GLSurfaceView
     private lateinit var roomLayerContainer: FrameLayout
+    private lateinit var carryLayerPanel: View
     private lateinit var renderer: SpatialRenderer
+    private lateinit var detailPanel: View
+    private lateinit var detailPanelLayer: TextView
+    private lateinit var detailPanelTitle: TextView
+    private lateinit var detailPanelBody: TextView
 
     private var arSession: Session? = null
     private var installRequested = false
@@ -71,6 +77,11 @@ class MainActivity : AppCompatActivity() {
 
         arSurface = findViewById(R.id.ar_surface)
         roomLayerContainer = findViewById(R.id.room_layer_container)
+        carryLayerPanel = findViewById(R.id.carry_layer_panel)
+        detailPanel = findViewById(R.id.detail_panel)
+        detailPanelLayer = findViewById(R.id.detail_panel_layer)
+        detailPanelTitle = findViewById(R.id.detail_panel_title)
+        detailPanelBody = findViewById(R.id.detail_panel_body)
         renderer = SpatialRenderer(
             roomLayerObjects = roomLayerObjects,
             rotationProvider = { displayRotation() },
@@ -81,7 +92,11 @@ class MainActivity : AppCompatActivity() {
         arSurface.setRenderer(renderer)
         arSurface.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
 
+        configureCarryLayerInteraction()
         inflateRoomLayerObjects()
+        configureRoomLayerInteraction()
+        carryLayerPanel.bringToFront()
+        detailPanel.bringToFront()
     }
 
     override fun onResume() {
@@ -174,10 +189,79 @@ class MainActivity : AppCompatActivity() {
             val cardView = inflater.inflate(R.layout.view_room_object, roomLayerContainer, false)
             cardView.findViewById<TextView>(R.id.roomObjectTitle).text = roomObject.title
             cardView.findViewById<TextView>(R.id.roomObjectSubtitle).text = roomObject.subtitle
+            cardView.setOnClickListener {
+                showDetailPanel(
+                    layer = "Room Layer",
+                    title = roomObject.title,
+                    body = "${roomObject.title} detail placeholder"
+                )
+            }
             cardView.visibility = View.INVISIBLE
             roomLayerContainer.addView(cardView)
             roomObjectViews[roomObject.title] = cardView
         }
+    }
+
+    private fun configureCarryLayerInteraction() {
+        carryLayerPanel.setOnTouchListener { _, event ->
+            event.action == MotionEvent.ACTION_UP &&
+                showRoomDetailIfPointHitsRoomObject(event.rawX, event.rawY)
+        }
+
+        findViewById<TextView>(R.id.browser_object).setOnClickListener {
+            showDetailPanel(
+                layer = "Carry Layer",
+                title = "Browser",
+                body = "Browser input placeholder"
+            )
+        }
+
+        findViewById<TextView>(R.id.social_object).setOnClickListener {
+            showDetailPanel(
+                layer = "Carry Layer",
+                title = "Social",
+                body = "Social detail placeholder"
+            )
+        }
+    }
+
+    private fun configureRoomLayerInteraction() {
+        roomLayerContainer.setOnTouchListener { _, event ->
+            if (event.action != MotionEvent.ACTION_UP) {
+                return@setOnTouchListener false
+            }
+
+            showRoomDetailIfPointHitsRoomObject(event.rawX, event.rawY)
+        }
+    }
+
+    private fun showRoomDetailIfPointHitsRoomObject(rawX: Float, rawY: Float): Boolean {
+        val location = IntArray(2)
+        val roomObject = roomLayerObjects.firstOrNull { spec ->
+            val view = roomObjectViews[spec.title] ?: return@firstOrNull false
+            view.getLocationOnScreen(location)
+            view.visibility == View.VISIBLE &&
+                rawX >= location[0] &&
+                rawX <= location[0] + view.width &&
+                rawY >= location[1] &&
+                rawY <= location[1] + view.height
+        } ?: return false
+
+        showDetailPanel(
+            layer = "Room Layer",
+            title = roomObject.title,
+            body = "${roomObject.title} detail placeholder"
+        )
+        return true
+    }
+
+    private fun showDetailPanel(layer: String, title: String, body: String) {
+        Log.d(tag, "showDetailPanel layer=$layer title=$title")
+        detailPanelLayer.text = layer
+        detailPanelTitle.text = title
+        detailPanelBody.text = body
+        detailPanel.visibility = View.VISIBLE
+        detailPanel.bringToFront()
     }
 
     private fun updateRoomObjectPositions(projections: List<ObjectProjection>) {

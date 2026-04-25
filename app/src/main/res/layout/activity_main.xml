@@ -22,6 +22,7 @@
     </FrameLayout>
 
     <LinearLayout
+        android:id="@+id/carry_layer_panel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
@@ -67,6 +68,7 @@
                 android:orientation="horizontal">
 
                 <TextView
+                    android:id="@+id/browser_object"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="8dp"
@@ -79,6 +81,7 @@
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/social_object"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -90,6 +93,46 @@
                     android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/detail_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_margin="20dp"
+        android:background="#E3121718"
+        android:orientation="vertical"
+        android:padding="18dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/detail_panel_layer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Carry Layer"
+            android:textAllCaps="true"
+            android:textColor="#A9CBC4"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/detail_panel_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Browser"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/detail_panel_body"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Placeholder detail panel"
+            android:textColor="#D0DDD5"
+            android:textSize="14sp" />
     </LinearLayout>
 
 </FrameLayout>
