@@ -18,7 +18,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.ar.core.Anchor
 import com.google.ar.core.ArCoreApk
-import com.google.ar.core.Camera
 import com.google.ar.core.Config
 import com.google.ar.core.Coordinates2d
 import com.google.ar.core.Frame
@@ -30,6 +29,9 @@ import com.google.ar.core.exceptions.UnavailableException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -53,12 +55,7 @@ class MainActivity : AppCompatActivity() {
     private var isSessionResumed = false
     private val smoothedRoomObjectPositions = mutableMapOf<String, ScreenPoint>()
 
-    private val roomWorldMarkerObjects = listOf(
-        RegionObjectSpec("Restaurant", "Local place marker", -1.1f, 0.08f, -2.4f),
-        RegionObjectSpec("Gas", "Fuel nearby marker", 0.25f, 0.2f, -2.8f),
-        RegionObjectSpec("Park", "Outdoor place marker", 1.0f, -0.05f, -3.1f),
-        RegionObjectSpec("Transit", "Route marker", -0.3f, -0.28f, -3.4f)
-    )
+    private val roomWorldMarkerObjects = PlaceholderWorldObjects.objects
     private val carryAppDockObjects = listOf(
         CarryAppSpec(R.id.browser_object, "Browser", "Browser placeholder content"),
         CarryAppSpec(R.id.social_object, "Social", "Social placeholder content"),
@@ -88,7 +85,9 @@ class MainActivity : AppCompatActivity() {
         activeWindowTitle = findViewById(R.id.active_window_title)
         activeWindowBody = findViewById(R.id.active_window_body)
         renderer = SpatialRenderer(
-            roomLayerObjects = roomWorldMarkerObjects,
+            worldObjects = roomWorldMarkerObjects,
+            deviceLocation = PlaceholderWorldObjects.deviceLocation,
+            logMarkerCreated = { message -> Log.d(tag, message) },
             rotationProvider = { displayRotation() },
             onFrame = { projections -> runOnUiThread { updateRoomObjectPositions(projections) } }
         )
@@ -192,11 +191,11 @@ class MainActivity : AppCompatActivity() {
         roomWorldMarkerObjects.forEach { roomObject ->
             val cardView = inflater.inflate(R.layout.view_room_object, roomWorldMarkers, false)
             cardView.findViewById<TextView>(R.id.roomObjectLabel).text = "World Marker"
-            cardView.findViewById<TextView>(R.id.roomObjectTitle).text = roomObject.title
-            cardView.findViewById<TextView>(R.id.roomObjectSubtitle).text = roomObject.subtitle
+            cardView.findViewById<TextView>(R.id.roomObjectTitle).text = roomObject.label
+            cardView.findViewById<TextView>(R.id.roomObjectSubtitle).text = roomObject.type.replace('_', ' ')
             cardView.visibility = View.INVISIBLE
             roomWorldMarkers.addView(cardView)
-            roomObjectViews[roomObject.title] = cardView
+            roomObjectViews[roomObject.id] = cardView
         }
     }
 
@@ -228,9 +227,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateRoomObjectPositions(projections: List<ObjectProjection>) {
         projections.forEach { projection ->
-            val view = roomObjectViews[projection.title] ?: return@forEach
+            val view = roomObjectViews[projection.id] ?: return@forEach
             if (!projection.visible) {
-                smoothedRoomObjectPositions.remove(projection.title)
+                smoothedRoomObjectPositions.remove(projection.id)
                 view.visibility = View.INVISIBLE
                 return@forEach
             }
@@ -239,7 +238,7 @@ class MainActivity : AppCompatActivity() {
             val height = view.height.takeIf { it > 0 } ?: view.measuredHeight
             val targetX = projection.x - width / 2f
             val targetY = projection.y - height / 2f
-            val smoothedPoint = smoothedRoomObjectPositions.getOrPut(projection.title) {
+            val smoothedPoint = smoothedRoomObjectPositions.getOrPut(projection.id) {
                 ScreenPoint(targetX, targetY)
             }
 
@@ -270,14 +269,6 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-data class RegionObjectSpec(
-    val title: String,
-    val subtitle: String,
-    val x: Float,
-    val y: Float,
-    val z: Float
-)
-
 data class CarryAppSpec(
     val viewId: Int,
     val title: String,
@@ -285,7 +276,7 @@ data class CarryAppSpec(
 )
 
 data class ObjectProjection(
-    val title: String,
+    val id: String,
     val x: Float,
     val y: Float,
     val visible: Boolean
@@ -297,7 +288,9 @@ data class ScreenPoint(
 )
 
 private class SpatialRenderer(
-    private val roomLayerObjects: List<RegionObjectSpec>,
+    private val worldObjects: List<WorldObject>,
+    private val deviceLocation: DeviceLocation,
+    private val logMarkerCreated: (String) -> Unit,
     private val rotationProvider: () -> Int,
     private val onFrame: (List<ObjectProjection>) -> Unit
 ) : GLSurfaceView.Renderer {
@@ -306,7 +299,7 @@ private class SpatialRenderer(
     private var cameraTextureId = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
-    private var anchors: List<Pair<RegionObjectSpec, Anchor>> = emptyList()
+    private var worldAnchors: List<WorldObjectAnchor> = emptyList()
     private var trackingFrameCount = 0
     private lateinit var cameraBackground: CameraBackgroundRenderer
 
@@ -321,8 +314,8 @@ private class SpatialRenderer(
 
     fun clearSession() {
         synchronized(lock) {
-            anchors.forEach { (_, anchor) -> anchor.detach() }
-            anchors = emptyList()
+            worldAnchors.forEach { it.anchor.detach() }
+            worldAnchors = emptyList()
             session = null
         }
     }
@@ -358,26 +351,81 @@ private class SpatialRenderer(
                 return
             }
 
-            if (anchors.isEmpty()) {
+            if (worldAnchors.isEmpty()) {
                 trackingFrameCount += 1
                 if (trackingFrameCount < REQUIRED_TRACKING_FRAMES_BEFORE_ANCHORING) {
                     return
                 }
-
-                anchors = roomLayerObjects.map { roomObject ->
-                    roomObject to currentSession.createAnchor(
-                        camera.pose.compose(Pose.makeTranslation(roomObject.x, roomObject.y, roomObject.z))
-                    )
-                }
+                worldAnchors = createWorldAnchors(currentSession, camera.pose)
             }
 
-            onFrame(projectAnchors(camera))
+            onFrame(projectWorldAnchors(camera))
         } catch (_: CameraNotAvailableException) {
             // The Activity will retry when the session resumes.
         }
     }
 
-    private fun projectAnchors(camera: Camera): List<ObjectProjection> {
+    private fun createWorldAnchors(session: Session, originPose: Pose): List<WorldObjectAnchor> =
+        worldObjects.mapIndexed { index, worldObject ->
+            val bearing = BearingMath.bearingDegrees(
+                fromLatitude = deviceLocation.latitude,
+                fromLongitude = deviceLocation.longitude,
+                toLatitude = worldObject.latitude,
+                toLongitude = worldObject.longitude
+            )
+            val relativeBearing = BearingMath.normalizeSignedDegrees(
+                bearing - deviceLocation.headingDegrees
+            )
+            val bearingRadians = Math.toRadians(relativeBearing.toDouble()).toFloat()
+            val worldPoint = horizontalWorldPoint(
+                originPose = originPose,
+                relativeBearingRadians = bearingRadians,
+                verticalOffset = (0.5f - verticalPositionFor(index)) *
+                    ROOM_MARKER_VERTICAL_SCALE_METERS
+            )
+            logMarkerCreated(
+                "created world marker id=${worldObject.id} label=${worldObject.label} " +
+                    "bearing=$bearing relativeBearing=$relativeBearing " +
+                    "world=(${worldPoint[0]}, ${worldPoint[1]}, ${worldPoint[2]})"
+            )
+            WorldObjectAnchor(
+                worldObject = worldObject,
+                anchor = session.createAnchor(
+                    Pose.makeTranslation(worldPoint[0], worldPoint[1], worldPoint[2])
+                )
+            )
+        }
+
+    private fun horizontalWorldPoint(
+        originPose: Pose,
+        relativeBearingRadians: Float,
+        verticalOffset: Float
+    ): FloatArray {
+        val cameraZAxis = FloatArray(3)
+        originPose.getTransformedAxis(2, 1.0f, cameraZAxis, 0)
+
+        val forwardX = -cameraZAxis[0]
+        val forwardZ = -cameraZAxis[2]
+        val forwardLength = sqrt(forwardX * forwardX + forwardZ * forwardZ)
+            .takeIf { it > 0.001f } ?: 1.0f
+        val unitForwardX = forwardX / forwardLength
+        val unitForwardZ = forwardZ / forwardLength
+        val unitRightX = -unitForwardZ
+        val unitRightZ = unitForwardX
+
+        val horizontalX = unitForwardX * cos(relativeBearingRadians) +
+            unitRightX * sin(relativeBearingRadians)
+        val horizontalZ = unitForwardZ * cos(relativeBearingRadians) +
+            unitRightZ * sin(relativeBearingRadians)
+
+        return floatArrayOf(
+            originPose.tx() + horizontalX * ROOM_MARKER_RADIUS_METERS,
+            originPose.ty() + verticalOffset,
+            originPose.tz() + horizontalZ * ROOM_MARKER_RADIUS_METERS
+        )
+    }
+
+    private fun projectWorldAnchors(camera: com.google.ar.core.Camera): List<ObjectProjection> {
         val viewMatrix = FloatArray(16)
         val projectionMatrix = FloatArray(16)
         val viewProjectionMatrix = FloatArray(16)
@@ -386,36 +434,43 @@ private class SpatialRenderer(
         camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100.0f)
         Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
 
-        return anchors.map { (roomObject, anchor) ->
-            val point = floatArrayOf(
-                anchor.pose.tx(),
-                anchor.pose.ty(),
-                anchor.pose.tz(),
-                1.0f
-            )
+        return worldAnchors.map { marker ->
+            val pose = marker.anchor.pose
+            val point = floatArrayOf(pose.tx(), pose.ty(), pose.tz(), 1.0f)
             val clip = FloatArray(4)
             Matrix.multiplyMV(clip, 0, viewProjectionMatrix, 0, point, 0)
 
-            val visible = clip[3] > 0.0f && anchor.trackingState == TrackingState.TRACKING
-            if (!visible) {
-                ObjectProjection(roomObject.title, 0.0f, 0.0f, visible = false)
-            } else {
-                val normalizedX = clip[0] / clip[3]
-                val normalizedY = clip[1] / clip[3]
-                ObjectProjection(
-                    title = roomObject.title,
-                    x = (normalizedX * 0.5f + 0.5f) * viewportWidth,
-                    y = (1.0f - (normalizedY * 0.5f + 0.5f)) * viewportHeight,
-                    visible = normalizedX in -1.2f..1.2f && normalizedY in -1.2f..1.2f
-                )
+            if (clip[3] <= 0.0f || marker.anchor.trackingState != TrackingState.TRACKING) {
+                return@map ObjectProjection(marker.worldObject.id, 0.0f, 0.0f, visible = false)
             }
+
+            val normalizedX = clip[0] / clip[3]
+            val normalizedY = clip[1] / clip[3]
+            ObjectProjection(
+                id = marker.worldObject.id,
+                x = (normalizedX * 0.5f + 0.5f) * viewportWidth,
+                y = (1.0f - (normalizedY * 0.5f + 0.5f)) * viewportHeight,
+                visible = normalizedX in -1.15f..1.15f && normalizedY in -1.15f..1.15f
+            )
         }
+    }
+
+    private fun verticalPositionFor(index: Int): Float {
+        val positions = floatArrayOf(0.34f, 0.42f, 0.36f, 0.4f, 0.38f)
+        return positions[index % positions.size]
     }
 
     private companion object {
         private const val REQUIRED_TRACKING_FRAMES_BEFORE_ANCHORING = 24
+        private const val ROOM_MARKER_RADIUS_METERS = 4.0f
+        private const val ROOM_MARKER_VERTICAL_SCALE_METERS = 1.3f
     }
 }
+
+private data class WorldObjectAnchor(
+    val worldObject: WorldObject,
+    val anchor: Anchor
+)
 
 private class CameraBackgroundRenderer {
     private val quadCoords = floatBufferOf(
