@@ -1,7 +1,10 @@
 package com.elonara.homear
 
 import android.Manifest
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
@@ -14,6 +17,8 @@ import android.view.View
 import androidx.activity.OnBackPressedCallback
 import android.widget.FrameLayout
 import android.widget.TextView
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -40,7 +45,7 @@ import javax.microedition.khronos.opengles.GL10
  * Minimal spatial proof for Elonara Home's two-layer model.
  * Room objects are ARCore anchors projected into Android views; carry objects stay fixed on top.
  */
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), SocialPanelHost {
     private val tag = "ElonaraHomeAr"
 
     private lateinit var arSurface: GLSurfaceView
@@ -55,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private var arSession: Session? = null
     private var installRequested = false
     private var isSessionResumed = false
+    private var pendingSocialFileCallback: ValueCallback<Array<Uri>>? = null
     private val smoothedRoomObjectPositions = mutableMapOf<String, ScreenPoint>()
 
     private val roomWorldMarkerObjects = PlaceholderWorldObjects.objects
@@ -73,6 +79,19 @@ class MainActivity : AppCompatActivity() {
             if (granted) {
                 resumeArSession()
             }
+        }
+
+    private val socialFileChooser =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val callback = pendingSocialFileCallback ?: return@registerForActivityResult
+            pendingSocialFileCallback = null
+            val uris = WebChromeClient.FileChooserParams.parseResult(
+                result.resultCode,
+                result.data
+            )
+            callback.onReceiveValue(
+                if (result.resultCode == Activity.RESULT_OK) uris else null
+            )
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,7 +114,9 @@ class MainActivity : AppCompatActivity() {
             titleView = findViewById(R.id.active_window_title),
             contentContainer = findViewById(R.id.active_window_body),
             closeControl = findViewById(R.id.active_window_close),
-            panels = CarryPanelRegistry()
+            panels = CarryPanelRegistry(
+                socialPanelHost = this
+            )
         )
         renderer = SpatialRenderer(
             worldObjects = roomWorldMarkerObjects,
@@ -139,10 +160,29 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         Log.d(tag, "onDestroy")
         super.onDestroy()
+        pendingSocialFileCallback?.onReceiveValue(null)
+        pendingSocialFileCallback = null
         renderer.clearSession()
         arSession?.close()
         arSession = null
         isSessionResumed = false
+    }
+
+    override fun openFileChooser(
+        filePathCallback: ValueCallback<Array<Uri>>,
+        fileChooserParams: WebChromeClient.FileChooserParams
+    ): Boolean {
+        pendingSocialFileCallback?.onReceiveValue(null)
+        pendingSocialFileCallback = filePathCallback
+
+        return try {
+            socialFileChooser.launch(fileChooserParams.createIntent())
+            true
+        } catch (_: ActivityNotFoundException) {
+            pendingSocialFileCallback = null
+            filePathCallback.onReceiveValue(null)
+            false
+        }
     }
 
     private fun resumeArSession() {

@@ -2,10 +2,18 @@ package com.elonara.homear
 
 import android.content.Context
 import android.graphics.Color
+import android.net.Uri
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.CookieManager
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebSettings
 import android.widget.FrameLayout
 import android.widget.TextView
 
@@ -94,9 +102,10 @@ class CarryActiveWindow(
 }
 
 class CarryPanelRegistry(
+    socialPanelHost: SocialPanelHost = NoOpSocialPanelHost,
     private val panels: List<CarryAppPanel> = listOf(
         BrowserPanel(),
-        SocialPanel(),
+        SocialPanel(socialPanelHost),
         CalendarPanel(),
         MessagesPanel(),
         SettingsPanel()
@@ -117,19 +126,38 @@ interface CarryAppPanel {
     fun onRemovedFromWindow() = Unit
 }
 
+interface SocialPanelHost {
+    fun openFileChooser(
+        filePathCallback: ValueCallback<Array<Uri>>,
+        fileChooserParams: WebChromeClient.FileChooserParams
+    ): Boolean
+}
+
+object NoOpSocialPanelHost : SocialPanelHost {
+    override fun openFileChooser(
+        filePathCallback: ValueCallback<Array<Uri>>,
+        fileChooserParams: WebChromeClient.FileChooserParams
+    ): Boolean {
+        filePathCallback.onReceiveValue(null)
+        return true
+    }
+}
+
 class BrowserPanel : PlaceholderCarryPanel(
     appId = CarryAppId.BROWSER,
     title = "Browser",
     placeholderText = "Browser placeholder content"
 )
 
-class SocialPanel : CarryAppPanel {
+class SocialPanel(private val host: SocialPanelHost) : CarryAppPanel {
     override val appId = CarryAppId.SOCIAL
     override val title = "Social"
+    private var container: FrameLayout? = null
+    private var statusView: TextView? = null
     private var webView: WebView? = null
 
     override fun createView(context: Context): View =
-        existingOrNewWebView(context).also { view ->
+        existingOrNewContainer(context).also { view ->
             (view.parent as? ViewGroup)?.removeView(view)
         }
 
@@ -144,22 +172,105 @@ class SocialPanel : CarryAppPanel {
     }
 
     override fun onRemovedFromWindow() {
+        CookieManager.getInstance().flush()
         webView?.destroy()
         webView = null
+        statusView = null
+        container = null
     }
 
-    private fun existingOrNewWebView(context: Context): WebView =
-        webView ?: WebView(context).apply {
+    private fun existingOrNewContainer(context: Context): FrameLayout =
+        container ?: FrameLayout(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            webViewClient = WebViewClient()
+
+            val socialWebView = createWebView(context)
+            val socialStatusView = createStatusView(context)
+            addView(socialWebView)
+            addView(socialStatusView)
+            container = this
+            webView = socialWebView
+            statusView = socialStatusView
+        }
+
+    private fun createWebView(context: Context): WebView =
+        WebView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+
+            configureCookies(this)
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    CookieManager.getInstance().flush()
+                    statusView?.visibility = View.GONE
+                }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    error: WebResourceError?
+                ) {
+                    if (request?.isForMainFrame == true) {
+                        showStatus("Social could not load. Check connection and try again.")
+                    }
+                }
+            }
+            webChromeClient = object : WebChromeClient() {
+                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                    if (newProgress < 100) {
+                        showStatus("Loading Social...")
+                    }
+                }
+
+                override fun onShowFileChooser(
+                    webView: WebView?,
+                    filePathCallback: ValueCallback<Array<Uri>>,
+                    fileChooserParams: FileChooserParams
+                ): Boolean = host.openFileChooser(filePathCallback, fileChooserParams)
+            }
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.loadsImagesAutomatically = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.loadWithOverviewMode = true
+            settings.useWideViewPort = true
+            settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
+            isVerticalScrollBarEnabled = true
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            showStatus("Loading Social...")
             loadUrl(SOCIAL_URL)
-            webView = this
         }
+
+    private fun createStatusView(context: Context): TextView =
+        TextView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+            text = "Loading Social..."
+            setTextColor(Color.parseColor("#D0DDD5"))
+            textSize = 14.0f
+            visibility = View.VISIBLE
+        }
+
+    private fun configureCookies(webView: WebView) {
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(webView, true)
+        }
+    }
+
+    private fun showStatus(message: String) {
+        statusView?.text = message
+        statusView?.visibility = View.VISIBLE
+    }
 
     private companion object {
         private const val SOCIAL_URL = "https://social.elonara.com"
