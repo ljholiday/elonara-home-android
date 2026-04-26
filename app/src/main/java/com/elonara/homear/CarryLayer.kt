@@ -55,7 +55,6 @@ class CarryActiveWindow(
 
     fun show(appId: CarryAppId) {
         if (activeAppId == appId && root.visibility == View.VISIBLE) {
-            root.bringToFront()
             return
         }
 
@@ -66,13 +65,12 @@ class CarryActiveWindow(
         titleView.text = panel.title
         contentContainer.addView(panel.createView(contentContainer.context))
         root.visibility = View.VISIBLE
-        root.bringToFront()
     }
 
     fun close() {
         activeAppId = null
         clearContent()
-        root.visibility = View.GONE
+        root.visibility = View.INVISIBLE
     }
 
     fun handleBack(): Boolean {
@@ -154,7 +152,7 @@ class SocialPanel : CarryAppPanel {
         webView ?: WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                420.dp(context)
+                ViewGroup.LayoutParams.MATCH_PARENT
             )
             webViewClient = WebViewClient()
             settings.javaScriptEnabled = true
@@ -162,9 +160,6 @@ class SocialPanel : CarryAppPanel {
             loadUrl(SOCIAL_URL)
             webView = this
         }
-
-    private fun Int.dp(context: Context): Int =
-        (this * context.resources.displayMetrics.density).toInt()
 
     private companion object {
         private const val SOCIAL_URL = "https://social.elonara.com"

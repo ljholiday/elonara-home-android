@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var arSurface: GLSurfaceView
     private lateinit var roomWorldMarkers: FrameLayout
+    private lateinit var carryLayerRoot: View
     private lateinit var carryAppDockRoot: View
     private lateinit var carryActiveWindowRoot: View
     private lateinit var carryAppDock: CarryAppDock
@@ -81,6 +82,7 @@ class MainActivity : AppCompatActivity() {
 
         arSurface = findViewById(R.id.ar_surface)
         roomWorldMarkers = findViewById(R.id.room_world_markers)
+        carryLayerRoot = findViewById(R.id.carry_layer)
         carryAppDockRoot = findViewById(R.id.carry_app_dock)
         carryActiveWindowRoot = findViewById(R.id.carry_active_window)
         carryAppDock = CarryAppDock(
@@ -110,8 +112,7 @@ class MainActivity : AppCompatActivity() {
         configureCarryRegions()
         configureBackNavigation()
         inflateRoomWorldMarkers()
-        carryAppDockRoot.bringToFront()
-        carryActiveWindowRoot.bringToFront()
+        carryLayerRoot.bringToFront()
     }
 
     override fun onResume() {
@@ -233,7 +234,7 @@ class MainActivity : AppCompatActivity() {
     private fun showActiveCarryWindow(appId: CarryAppId) {
         Log.d(tag, "showActiveCarryWindow appId=$appId")
         carryActiveWindow.show(appId)
-        carryAppDockRoot.bringToFront()
+        carryLayerRoot.bringToFront()
     }
 
     private fun updateRoomObjectPositions(projections: List<ObjectProjection>) {
