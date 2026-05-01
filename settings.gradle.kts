@@ -17,5 +17,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "elonara-home-android"
+rootProject.name = "elonn-world-android"
 include(":app")

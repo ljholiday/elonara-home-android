@@ -1,4 +1,4 @@
-package com.elonara.homear
+package com.elonn.worldar
 
 import android.Manifest
 import android.app.Activity
@@ -42,11 +42,11 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /*
- * Minimal spatial proof for Elonara Home's two-layer model.
+ * Minimal spatial proof for Elonn World's two-layer model.
  * Room objects are ARCore anchors projected into Android views; carry objects stay fixed on top.
  */
 class MainActivity : AppCompatActivity(), SocialPanelHost {
-    private val tag = "ElonaraHomeAr"
+    private val tag = "ElonnWorldAr"
 
     private lateinit var arSurface: GLSurfaceView
     private lateinit var roomWorldMarkers: FrameLayout

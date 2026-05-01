@@ -1,6 +1,6 @@
-# Elonara Home Android AR Proof
+# Elonn World Android AR Proof
 
-This project is a separate Android proof client for Elonara Home's two-layer model.
+This project is a separate Android proof client for Elonn World's two-layer model.
 
 ## What it demonstrates
 
@@ -12,7 +12,7 @@ It does **not** connect to the PHP backend and does **not** implement real objec
 ## Build in Android Studio
 
 1. Open Android Studio.
-2. Choose **Open** and select this folder: `elonara-home-android`.
+2. Choose **Open** and select this folder: `elonn-world-android`.
 3. Let Android Studio sync Gradle and install any missing SDK components.
 4. Connect an ARCore-supported Android device with developer mode enabled.
 5. Select the `app` run configuration.

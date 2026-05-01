@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.elonara.homear"
+    namespace = "com.elonn.worldar"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.elonara.homear"
+        applicationId = "com.elonn.worldar"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
